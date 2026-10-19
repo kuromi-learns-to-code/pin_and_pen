@@ -22,6 +22,11 @@
   #toolbar button:hover { background:#f0f0f0; }
   #toolbar button.primary { background:#2b2b2b; color:#fff; border-color:#2b2b2b; }
   #status { font-size:12px; color:#888; margin-left:6px; }
+  #defColor { display:flex; align-items:center; gap:6px; margin-left:4px; padding-left:10px; border-left:1px solid var(--line);
+              font-size:12px; color:#888; }
+  #defColor button { width:16px; height:16px; padding:0; border-radius:50%; border:1px solid rgba(0,0,0,.2); }
+  #defColor button:hover { transform:scale(1.12); }
+  #defColor button.sel { outline:1.5px solid #333; outline-offset:1.5px; }
   #help { margin-left:auto; flex-shrink:1; min-width:0; font-size:12px; color:#888; overflow:hidden; text-overflow:ellipsis; }
 
   #board { position:relative; margin-top:46px; min-width:100vw; min-height:calc(100vh - 46px);
@@ -92,6 +97,7 @@
   <button id="btnExport" title="Back up to a JSON file">Export</button>
   <button id="btnImport" title="Restore from a backup file">Import</button>
   <button id="btnClear">Clear All</button>
+  <span id="defColor" title="Color for new notes"><span class="lbl">New note</span></span>
   <span id="status"></span>
   <span id="help">Click: new note · Ctrl+click / drag area: select · Drag top bar: move · Drag corner: resize · Esc: done · Ctrl+Z: undo delete</span>
   <input type="file" id="fileInput" accept=".json,application/json" hidden>
@@ -134,6 +140,29 @@
   // 표준 포스트잇 4색: 카나리 옐로 / 핑크 / 블루 / 그린
   const COLORS = ['#fff59d', '#ffc1d6', '#b3e0fb', '#c5eba4'];
   const COLOR_NAMES = ['Yellow', 'Pink', 'Blue', 'Green'];
+
+  // ---------- 새 메모 기본 색상 (메뉴 바에서 선택, 브라우저에 기억) ----------
+  const DEF_KEY = 'pinpen.defaultColor';
+  let defaultColor = 0;   // 기본: 연노랑
+  try {
+    const v = parseInt(localStorage.getItem(DEF_KEY), 10);
+    if (v >= 0 && v < COLORS.length) defaultColor = v;
+  } catch (e) {}
+  const defBtns = COLORS.map((c, i) => {
+    const b = document.createElement('button');
+    b.style.background = c;
+    b.title = 'New notes: ' + COLOR_NAMES[i];
+    b.addEventListener('mousedown', e => e.preventDefault());
+    b.addEventListener('click', () => {
+      defaultColor = i;
+      try { localStorage.setItem(DEF_KEY, String(i)); } catch (e) {}
+      paintDefColor();
+    });
+    document.getElementById('defColor').appendChild(b);
+    return b;
+  });
+  function paintDefColor() { defBtns.forEach((b, i) => b.classList.toggle('sel', i === defaultColor)); }
+  paintDefColor();
 
   // 상단 바 아이콘: 글꼴에 따라 크기가 달라지지 않도록 같은 크기의 SVG로 통일
   const SVG = d => `<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">${d}</svg>`;
@@ -473,7 +502,7 @@
       id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
       x: Math.max(0, Math.round(x - 12)),
       y: Math.max(0, Math.round(y - 24)),
-      w: 200, text: '', color: 0, z: ++maxZ
+      w: 200, text: '', color: defaultColor, z: ++maxZ
     };
     notes.push(n);
     const el = makeNoteEl(n);
