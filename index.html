@@ -27,6 +27,8 @@
   #defColor button { width:16px; height:16px; padding:0; border-radius:50%; border:1px solid rgba(0,0,0,.2); }
   #defColor button:hover { transform:scale(1.12); }
   #defColor button.sel { outline:1.5px solid #333; outline-offset:1.5px; }
+  #defColor button.custom { background:conic-gradient(#ff6b6b, #ffd43b, #69db7c, #4dabf7, #b197fc, #ff6b6b); }
+  #defColor .hidden-color { position:absolute; width:1px; height:1px; opacity:0; pointer-events:none; border:0; padding:0; }
   #help { margin-left:auto; flex-shrink:1; min-width:0; font-size:12px; color:#888; overflow:hidden; text-overflow:ellipsis; }
 
   #board { position:relative; margin-top:46px; min-width:100vw; min-height:calc(100vh - 46px);
@@ -62,6 +64,8 @@
   #palette button { width:18px; height:18px; padding:0; border-radius:50%; border:1px solid rgba(0,0,0,.18); cursor:pointer; }
   #palette button:hover { transform:scale(1.12); }
   #palette button.sel { outline:1.5px solid #333; outline-offset:1.5px; }
+  #palette button.custom { background:conic-gradient(#ff6b6b, #ffd43b, #69db7c, #4dabf7, #b197fc, #ff6b6b); }
+  .hidden-color { position:absolute; width:1px; height:1px; opacity:0; pointer-events:none; border:0; padding:0; }
   #emojiPop { position:fixed; display:none; grid-template-columns:repeat(8, 24px); gap:2px; padding:5px; background:#fff;
               border:1px solid #ddd; border-radius:8px; box-shadow:0 4px 14px rgba(0,0,0,.15); z-index:150000; }
   #emojiPop.open { display:grid; }
@@ -142,26 +146,63 @@
   const COLOR_NAMES = ['Yellow', 'Pink', 'Blue', 'Green'];
 
   // ---------- 새 메모 기본 색상 (메뉴 바에서 선택, 브라우저에 기억) ----------
+  // defaultColor: 0~3 = 기본 4색, '#rrggbb' = 사용자 지정 색
   const DEF_KEY = 'pinpen.defaultColor';
+  const CUSTOM_KEY = 'pinpen.customColor';
+  const isHex = v => typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v);
+  const colorOf = c => isHex(c) ? c : COLORS[(c || 0) % COLORS.length];   // 메모 색 값 → 실제 색
   let defaultColor = 0;   // 기본: 연노랑
+  let customColor = null;
   try {
-    const v = parseInt(localStorage.getItem(DEF_KEY), 10);
-    if (v >= 0 && v < COLORS.length) defaultColor = v;
+    const raw = localStorage.getItem(DEF_KEY);
+    if (isHex(raw)) defaultColor = raw;
+    else { const v = parseInt(raw, 10); if (v >= 0 && v < COLORS.length) defaultColor = v; }
+    const cc = localStorage.getItem(CUSTOM_KEY);
+    if (isHex(cc)) customColor = cc;
   } catch (e) {}
+  function setDefault(v) {
+    defaultColor = v;
+    try { localStorage.setItem(DEF_KEY, String(v)); } catch (e) {}
+    paintDefColor();
+  }
+  const defBox = document.getElementById('defColor');
   const defBtns = COLORS.map((c, i) => {
     const b = document.createElement('button');
     b.style.background = c;
     b.title = 'New notes: ' + COLOR_NAMES[i];
     b.addEventListener('mousedown', e => e.preventDefault());
-    b.addEventListener('click', () => {
-      defaultColor = i;
-      try { localStorage.setItem(DEF_KEY, String(i)); } catch (e) {}
-      paintDefColor();
-    });
-    document.getElementById('defColor').appendChild(b);
+    b.addEventListener('click', () => setDefault(i));
+    defBox.appendChild(b);
     return b;
   });
-  function paintDefColor() { defBtns.forEach((b, i) => b.classList.toggle('sel', i === defaultColor)); }
+
+  // 다섯 번째: 사용자 지정 색 (브라우저 기본 색상 선택 창 사용 — 팔레트, RGB, HEX 입력 포함)
+  const customBtn = document.createElement('button');
+  customBtn.className = 'custom';
+  customBtn.title = 'New notes: custom color…';
+  const colorInput = document.createElement('input');
+  colorInput.type = 'color';
+  colorInput.className = 'hidden-color';
+  customBtn.addEventListener('mousedown', e => e.preventDefault());
+  customBtn.addEventListener('click', () => {
+    if (customColor) setDefault(customColor);     // 이미 만든 색이 있으면 바로 선택
+    colorInput.value = customColor || '#ffd8a8';
+    colorInput.click();                           // 색상 선택 창 열기
+  });
+  colorInput.addEventListener('input', () => { customBtn.style.background = colorInput.value; });
+  colorInput.addEventListener('change', () => {
+    customColor = colorInput.value.toLowerCase();
+    try { localStorage.setItem(CUSTOM_KEY, customColor); } catch (e) {}
+    setDefault(customColor);
+  });
+  defBox.appendChild(customBtn);
+  defBox.appendChild(colorInput);
+
+  function paintDefColor() {
+    defBtns.forEach((b, i) => b.classList.toggle('sel', i === defaultColor));
+    customBtn.classList.toggle('sel', isHex(defaultColor));
+    customBtn.style.background = customColor || '';   // 아직 없으면 무지개 아이콘
+  }
   paintDefColor();
 
   // 상단 바 아이콘: 글꼴에 따라 크기가 달라지지 않도록 같은 크기의 SVG로 통일
@@ -199,25 +240,54 @@
     b.style.background = c;
     b.title = COLOR_NAMES[i];
     b.addEventListener('mousedown', e => e.preventDefault());
-    b.addEventListener('click', () => {
-      const n = paletteNote;
-      if (!n) return;
-      // 선택된 메모 중 하나에서 고르면 선택된 메모 전체에 적용
-      const group = selected.has(n.id) && selected.size > 1 ? selectedNotes() : [n];
-      group.forEach(g => { g.color = i; const ge = elOf(g); if (ge) ge.style.background = c; });
-      const el = elOf(n);
-      closePalette();
-      if (el && group.length === 1) el.querySelector('textarea').focus();   // 바로 이어서 입력 가능
-      save();
-    });
+    b.addEventListener('click', () => applyNoteColor(paletteNote, i));
     palette.appendChild(b);
     return b;
   });
 
+  // 메모에 색 적용 (선택된 메모 중 하나에서 고르면 선택된 메모 전체에 적용)
+  function applyNoteColor(n, value) {
+    if (!n || !elOf(n)) return;
+    const group = selected.has(n.id) && selected.size > 1 ? selectedNotes() : [n];
+    group.forEach(g => { g.color = value; const ge = elOf(g); if (ge) ge.style.background = colorOf(value); });
+    const el = elOf(n);
+    if (group.length === 1) el.querySelector('textarea').focus();   // 바로 이어서 입력 가능
+    closePalette();
+    save();
+  }
+
+  // 다섯 번째: 사용자 지정 색 (브라우저 기본 색상 선택 창)
+  const noteCustomBtn = document.createElement('button');
+  noteCustomBtn.className = 'custom';
+  noteCustomBtn.title = 'Custom color…';
+  const noteColorInput = document.createElement('input');
+  noteColorInput.type = 'color';
+  noteColorInput.className = 'hidden-color';
+  let customTarget = null;
+  noteCustomBtn.addEventListener('mousedown', e => e.preventDefault());
+  noteCustomBtn.addEventListener('click', () => {
+    const n = paletteNote;
+    if (!n) return;
+    customTarget = n;
+    noteColorInput.value = isHex(n.color) ? n.color : (customColor || '#ffd8a8');
+    noteColorInput.click();
+  });
+  noteColorInput.addEventListener('change', () => {
+    const n = customTarget;
+    customTarget = null;
+    if (!n) return;
+    if (paletteNote !== n) paletteNote = n;   // 선택 창을 쓰는 동안 팝업이 닫혔어도 적용
+    applyNoteColor(n, noteColorInput.value.toLowerCase());
+  });
+  palette.appendChild(noteCustomBtn);
+  palette.appendChild(noteColorInput);
+
   function openPalette(n, btn) {
     if (emojiNote) closeEmoji();
     paletteNote = n;
-    swatches.forEach((b, i) => b.classList.toggle('sel', i === (n.color || 0) % COLORS.length));
+    swatches.forEach((b, i) => b.classList.toggle('sel', !isHex(n.color) && i === (n.color || 0) % COLORS.length));
+    noteCustomBtn.classList.toggle('sel', isHex(n.color));
+    noteCustomBtn.style.background = isHex(n.color) ? n.color : '';
     palette.classList.add('open');
     placePopup(palette, btn);   // 메모 위쪽에 표시 (공간이 없으면 아래쪽)
   }
@@ -357,7 +427,7 @@
     el.style.top = n.y + 'px';
     el.style.width = (n.w || 200) + 'px';
     if (n.h) el.style.minHeight = n.h + 'px';
-    el.style.background = COLORS[(n.color || 0) % COLORS.length];
+    el.style.background = colorOf(n.color);
     el.style.zIndex = n.z || 1;
     el.innerHTML =
       '<div class="bar"><button class="c" title="Color">' + ICON_COLOR + '</button><button class="e" title="Emoji">' + ICON_EMOJI + '</button><button class="d" title="Delete">' + ICON_DEL + '</button></div>' +
