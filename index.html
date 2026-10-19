@@ -56,6 +56,11 @@
   .note.selected { box-shadow:0 0 0 2px #2f7cf6, 0 4px 14px rgba(47,124,246,.25); }
   #marquee { position:absolute; display:none; border:1px solid #2f7cf6; background:rgba(47,124,246,.10);
              pointer-events:none; z-index:2147483000; }
+  /* 확대/축소: 메모들은 #canvas 안에서 transform:scale 로 함께 커지고 작아짐 */
+  #canvas { position:absolute; left:0; top:0; width:0; height:0; transform-origin:0 0; }
+  #zoomBox { display:flex; align-items:center; gap:3px; margin-left:4px; padding-left:10px; border-left:1px solid var(--line); }
+  #toolbar #zoomBox button { padding:3px 8px; min-width:26px; }
+  #toolbar #zoomBox #zoomLevel { min-width:52px; }
   body.marquee-on, body.marquee-on * { user-select:none; -webkit-user-select:none; cursor:crosshair; }
 
   #palette { position:fixed; display:none; gap:6px; padding:6px 8px; background:#fff; border:1px solid #ddd;
@@ -104,13 +109,19 @@
   <button id="btnExport" title="Back up to a JSON file">Export</button>
   <button id="btnImport" title="Restore from a backup file">Import</button>
   <button id="btnClear">Clear All</button>
+  <span id="zoomBox">
+    <button id="zoomOut" title="Zoom out (Ctrl + mouse wheel)">−</button>
+    <button id="zoomLevel" title="Reset to 100%">100%</button>
+    <button id="zoomIn" title="Zoom in (Ctrl + mouse wheel)">+</button>
+    <button id="zoomFit" title="Fit all notes on screen">Fit</button>
+  </span>
   <span id="defColor" title="Color for new notes"><span class="lbl">New note</span></span>
   <span id="status"></span>
-  <span id="help">Click: new note · Ctrl+click / drag area: select · Drag top bar: move · Drag corner: resize · Esc: done · Ctrl+Z: undo delete</span>
+  <span id="help">Click: new note · Ctrl+click / drag area: select · Drag top bar: move · Drag corner: resize · Esc: done · Ctrl+Z: undo delete · Ctrl+wheel: zoom</span>
   <input type="file" id="fileInput" accept=".json,application/json" hidden>
 </div>
 
-<div id="board"><div id="marquee"></div></div>
+<div id="board"><div id="canvas"><div id="marquee"></div></div></div>
 <div id="palette"></div>
 <div id="emojiPop"></div>
 
@@ -215,6 +226,62 @@
   const ICON_DEL   = SVG('<path d="M4 4l8 8M12 4l-8 8"/>');
   const board = document.getElementById('board');
   const statusEl = document.getElementById('status');
+  const canvas = document.getElementById('canvas');
+
+  // ---------- 확대 / 축소 ----------
+  const ZOOM_KEY = 'pinpen.zoom';
+  const ZOOM_STEPS = [0.25, 0.33, 0.5, 0.67, 0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2];
+  let zoom = 1;
+  try { const z = parseFloat(localStorage.getItem(ZOOM_KEY)); if (z >= 0.25 && z <= 2) zoom = z; } catch (e) {}
+
+  // z 배율로 바꾸면서 화면의 (ax, ay) 지점이 제자리에 머물도록 스크롤 보정
+  function setZoom(z, ax, ay) {
+    z = Math.min(2, Math.max(0.25, Math.round(z * 100) / 100));
+    if (ax === undefined) { ax = window.innerWidth / 2; ay = (window.innerHeight + 46) / 2; }
+    const r = board.getBoundingClientRect();
+    const px = (ax - r.left) / zoom, py = (ay - r.top) / zoom;   // 고정할 지점 (보드 좌표)
+    const old = zoom;
+    zoom = z;
+    applyZoom();
+    window.scrollBy(px * (z - old), py * (z - old));
+    try { localStorage.setItem(ZOOM_KEY, String(z)); } catch (e) {}
+  }
+  function applyZoom() {
+    canvas.style.transform = `scale(${zoom})`;
+    board.style.backgroundSize = `${24 * zoom}px ${24 * zoom}px`;
+    document.getElementById('zoomLevel').textContent = Math.round(zoom * 100) + '%';
+    if (typeof fitBoard === 'function') fitBoard();
+  }
+  function stepZoom(dir, ax, ay) {
+    const next = dir > 0 ? ZOOM_STEPS.find(s => s > zoom + 0.001) : [...ZOOM_STEPS].reverse().find(s => s < zoom - 0.001);
+    if (next) setZoom(next, ax, ay);
+  }
+  // 모든 메모가 한 화면에 들어오게 (축소만, 100%보다 키우지는 않음)
+  function zoomToFit() {
+    if (!notes.length) { setZoom(1); return; }
+    let x1 = Infinity, y1 = Infinity, x2 = 0, y2 = 0;
+    notes.forEach(n => {
+      const el = elOf(n);
+      x1 = Math.min(x1, n.x); y1 = Math.min(y1, n.y);
+      x2 = Math.max(x2, n.x + (el ? el.offsetWidth : n.w)); y2 = Math.max(y2, n.y + (el ? el.offsetHeight : 60));
+    });
+    const pad = 40;
+    const z = Math.min(1, Math.max(0.25, Math.min((window.innerWidth - pad) / (x2 - x1 + pad), (window.innerHeight - 46 - pad) / (y2 - y1 + pad))));
+    zoom = Math.floor(z * 100) / 100;
+    applyZoom();
+    window.scrollTo(Math.max(0, x1 * zoom - pad / 2), Math.max(0, y1 * zoom - pad / 2));
+    try { localStorage.setItem(ZOOM_KEY, String(zoom)); } catch (e) {}
+  }
+  document.getElementById('zoomIn').addEventListener('click', () => stepZoom(1));
+  document.getElementById('zoomOut').addEventListener('click', () => stepZoom(-1));
+  document.getElementById('zoomLevel').addEventListener('click', () => setZoom(1));
+  document.getElementById('zoomFit').addEventListener('click', zoomToFit);
+  // Ctrl + 마우스 휠: 커서 위치를 중심으로 확대/축소 (브라우저 전체 확대 대신)
+  window.addEventListener('wheel', e => {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    e.preventDefault();
+    stepZoom(e.deltaY < 0 ? 1 : -1, e.clientX, e.clientY);
+  }, { passive: false });
 
   let notes = [];          // {id, x, y, w, text, color, z}
   let maxZ = 1;
@@ -492,7 +559,7 @@
       bringFront(n);
       const sx = e.clientX, sy = e.clientY;
       const move = ev => {
-        const dx = Math.max(-minX, ev.clientX - sx), dy = Math.max(-minY, ev.clientY - sy);
+        const dx = Math.max(-minX, (ev.clientX - sx) / zoom), dy = Math.max(-minY, (ev.clientY - sy) / zoom);
         starts.forEach(s => {
           s.g.x = Math.round(s.ox + dx);
           s.g.y = Math.round(s.oy + dy);
@@ -521,8 +588,8 @@
       bringFront(n);
       const sx = e.clientX, sy = e.clientY, ow = el.offsetWidth, oh = el.offsetHeight;
       const move = ev => {
-        n.w = Math.min(900, Math.max(110, Math.round(ow + ev.clientX - sx)));
-        n.h = Math.max(52, Math.round(oh + ev.clientY - sy));
+        n.w = Math.min(900, Math.max(110, Math.round(ow + (ev.clientX - sx) / zoom)));
+        n.h = Math.max(52, Math.round(oh + (ev.clientY - sy) / zoom));
         el.style.width = n.w + 'px';
         el.style.minHeight = n.h + 'px';
         autosize(ta);
@@ -540,7 +607,7 @@
       grip.addEventListener('pointercancel', up);
     });
 
-    board.appendChild(el);
+    canvas.appendChild(el);
     autosize(ta);
     return el;
   }
@@ -573,8 +640,8 @@
   function addNote(x, y) {
     const n = {
       id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-      x: Math.max(0, Math.round(x - 12)),
-      y: Math.max(0, Math.round(y - 24)),
+      x: Math.max(0, Math.round(x - 12 / zoom)),
+      y: Math.max(0, Math.round(y - 24 / zoom)),
       w: 200, text: '', color: defaultColor, z: ++maxZ
     };
     notes.push(n);
@@ -591,8 +658,8 @@
       mx = Math.max(mx, n.x + (el ? el.offsetWidth : n.w));
       my = Math.max(my, n.y + (el ? el.offsetHeight : 60));
     });
-    board.style.width = Math.max(window.innerWidth, mx + 600) + 'px';
-    board.style.height = Math.max(window.innerHeight - 46, my + 500) + 'px';
+    board.style.width = Math.max(window.innerWidth, (mx + 600) * zoom) + 'px';
+    board.style.height = Math.max(window.innerHeight - 46, (my + 500) * zoom) + 'px';
   }
 
   // ---------- 빈 곳 클릭 → 새 메모 ----------
@@ -608,14 +675,14 @@
   board.addEventListener('pointerdown', e => {
     if (e.target !== board || e.button !== 0 || e.pointerType !== 'mouse') return;
     const r0 = board.getBoundingClientRect();
-    const sx = e.clientX - r0.left, sy = e.clientY - r0.top;
+    const sx = (e.clientX - r0.left) / zoom, sy = (e.clientY - r0.top) / zoom;
     const base = (e.ctrlKey || e.metaKey) ? new Set(selected) : new Set();   // Ctrl+드래그: 기존 선택에 추가
     let active = false;
     const move = ev => {
       const r = board.getBoundingClientRect();
-      const cx = ev.clientX - r.left, cy = ev.clientY - r.top;
+      const cx = (ev.clientX - r.left) / zoom, cy = (ev.clientY - r.top) / zoom;
       if (!active) {
-        if (Math.abs(cx - sx) < 5 && Math.abs(cy - sy) < 5) return;   // 살짝 움직인 건 클릭으로 처리
+        if (Math.abs(cx - sx) * zoom < 5 && Math.abs(cy - sy) * zoom < 5) return;   // 살짝 움직인 건 클릭으로 처리
         active = true;
         const a = document.activeElement;
         if (a && a !== document.body) a.blur();
@@ -651,7 +718,7 @@
     if (selected.size) { clearSelection(); wasEditing = false; return; }   // 선택 중이면 첫 클릭은 선택 해제만
     if (wasEditing) { wasEditing = false; return; }   // 입력 중이었으면 첫 클릭은 입력 종료만
     const r = board.getBoundingClientRect();
-    addNote(e.clientX - r.left, e.clientY - r.top);
+    addNote((e.clientX - r.left) / zoom, (e.clientY - r.top) / zoom);
   });
 
   // ---------- 단축키 ----------
@@ -664,6 +731,11 @@
       list.forEach(n => { n.z = ++maxZ; notes.push(n); makeNoteEl(n); });
       save(); fitBoard();
       statusEl.textContent = 'Restored';
+    }
+    // Ctrl + = / - / 0 : 확대 / 축소 / 100%
+    if ((e.ctrlKey || e.metaKey) && !modalOpen && ['=', '+', '-', '0'].includes(e.key)) {
+      e.preventDefault();
+      if (e.key === '0') setZoom(1); else stepZoom(e.key === '-' ? -1 : 1);
     }
     // Ctrl+A: 전체 선택 / Delete·Backspace: 선택 삭제
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a' && !inText && !modalOpen) {
@@ -788,6 +860,7 @@
 
   window.addEventListener('resize', fitBoard);
   load();
+  applyZoom();
 })();
 </script>
 </body>
