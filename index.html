@@ -9,14 +9,28 @@
   * { box-sizing: border-box; }
   body { margin:0; font-family:"Malgun Gothic","맑은 고딕","Apple SD Gothic Neo",sans-serif; background:var(--bg); color:var(--ink); }
 
+  html { -webkit-text-size-adjust:100%; }
+
   #toolbar { position:fixed; top:0; left:0; right:0; height:46px; display:flex; align-items:center; gap:6px;
-             padding:0 12px; background:#fff; border-bottom:1px solid var(--line); z-index:100000; }
+             padding:0 12px; background:#fff; border-bottom:1px solid var(--line); z-index:100000;
+             overflow-x:auto; overflow-y:hidden; scrollbar-width:none; -webkit-overflow-scrolling:touch; }
+  #toolbar::-webkit-scrollbar { display:none; }
+  #toolbar > * { flex-shrink:0; white-space:nowrap; }
   #toolbar .title { font-weight:700; margin-right:8px; }
-  #toolbar button { font:inherit; font-size:13px; padding:5px 10px; border:1px solid #ccc; background:#fafafa; border-radius:6px; cursor:pointer; }
+  #toolbar button { font:inherit; font-size:13px; padding:5px 10px; border:1px solid #ccc; background:#fafafa;
+                    border-radius:6px; cursor:pointer; color:var(--ink); -webkit-appearance:none; appearance:none; }
+  #help { margin-left:auto; flex-shrink:1; min-width:0; font-size:12px; color:#888; overflow:hidden; text-overflow:ellipsis; }
+
+  /* 휴대폰 등 좁은 화면 */
+  @media (max-width: 700px) {
+    #toolbar { gap:4px; padding:0 8px; }
+    #toolbar .title { font-size:14px; margin-right:4px; }
+    #toolbar button { font-size:12px; padding:4px 8px; }
+    #help { display:none; }
+  }
   #toolbar button:hover { background:#f0f0f0; }
   #toolbar button.primary { background:#2b2b2b; color:#fff; border-color:#2b2b2b; }
   #status { font-size:12px; color:#888; margin-left:6px; }
-  #help { margin-left:auto; font-size:12px; color:#888; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
   #board { position:relative; margin-top:46px; min-width:100vw; min-height:calc(100vh - 46px);
            background-image:radial-gradient(var(--dot) 1px, transparent 1px); background-size:24px 24px; cursor:text; }
