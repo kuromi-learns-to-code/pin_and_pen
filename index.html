@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>📝  Pin &amp; Pen</title>
+<title>📝Pin &amp; Pen</title>
 <style>
   :root { --bg:#f6f4ef; --dot:#dcd7cc; --ink:#2b2b2b; --line:#ddd; }
   * { box-sizing: border-box; }
@@ -58,6 +58,9 @@
              pointer-events:none; z-index:2147483000; }
   /* 확대/축소: 메모들은 #canvas 안에서 transform:scale 로 함께 커지고 작아짐 */
   #canvas { position:absolute; left:0; top:0; width:0; height:0; transform-origin:0 0; }
+  /* 워터마크: 화면 우하단 고정, 클릭·선택 방해 없음 */
+  #watermark { position:fixed; right:14px; bottom:10px; z-index:99999; pointer-events:none; user-select:none;
+               -webkit-user-select:none; font-size:12px; font-style:italic; color:#c7c7cc; white-space:nowrap; }
   #zoomBox { display:flex; align-items:center; gap:3px; margin-left:4px; padding-left:10px; border-left:1px solid var(--line); }
   #toolbar #zoomBox button { padding:3px 8px; min-width:26px; }
   #toolbar #zoomBox #zoomLevel { min-width:52px; }
@@ -104,7 +107,7 @@
 <body>
 
 <div id="toolbar">
-  <span class="title">📝  Pin &amp; Pen</span>
+  <span class="title">📝Pin &amp; Pen</span>
   <button class="primary" id="btnCopy" title="Collect note text in layout order">Collect &amp; Copy</button>
   <button id="btnExport" title="Back up to a JSON file">Export</button>
   <button id="btnImport" title="Restore from a backup file">Import</button>
@@ -122,6 +125,7 @@
 </div>
 
 <div id="board"><div id="canvas"><div id="marquee"></div></div></div>
+<div id="watermark">© kuromi learns to code</div>
 <div id="palette"></div>
 <div id="emojiPop"></div>
 
