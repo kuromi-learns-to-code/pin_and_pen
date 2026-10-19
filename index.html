@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Pin &amp; Pen</title>
+<title>📝Pin &amp; Pen</title>
 <style>
   :root { --bg:#f6f4ef; --dot:#dcd7cc; --ink:#2b2b2b; --line:#ddd; }
   * { box-sizing: border-box; }
@@ -28,7 +28,7 @@
   #defColor button:hover { transform:scale(1.12); }
   #defColor button.sel { outline:1.5px solid #333; outline-offset:1.5px; }
   #defColor button.custom { background:conic-gradient(#ff6b6b, #ffd43b, #69db7c, #4dabf7, #b197fc, #ff6b6b); }
-  #defColor .hidden-color { position:absolute; width:1px; height:1px; opacity:0; pointer-events:none; border:0; padding:0; }
+  #defColor { position:relative; }
   #help { margin-left:auto; flex-shrink:1; min-width:0; font-size:12px; color:#888; overflow:hidden; text-overflow:ellipsis; }
 
   #board { position:relative; margin-top:46px; min-width:100vw; min-height:calc(100vh - 46px);
@@ -65,7 +65,10 @@
   #palette button:hover { transform:scale(1.12); }
   #palette button.sel { outline:1.5px solid #333; outline-offset:1.5px; }
   #palette button.custom { background:conic-gradient(#ff6b6b, #ffd43b, #69db7c, #4dabf7, #b197fc, #ff6b6b); }
-  .hidden-color { position:absolute; width:1px; height:1px; opacity:0; pointer-events:none; border:0; padding:0; }
+  /* 숨겨진 색 입력칸: 색상 선택 창은 이 위치를 기준으로 열림 → 무지개 버튼 오른쪽 아래에 두어
+     창이 왼쪽 색 버튼들을 가리지 않게 함 */
+  .hidden-color { position:absolute; left:100%; top:100%; width:1px; height:1px; margin:0; opacity:0;
+                  pointer-events:none; border:0; padding:0; }
   #emojiPop { position:fixed; display:none; grid-template-columns:repeat(8, 24px); gap:2px; padding:5px; background:#fff;
               border:1px solid #ddd; border-radius:8px; box-shadow:0 4px 14px rgba(0,0,0,.15); z-index:150000; }
   #emojiPop.open { display:grid; }
@@ -96,7 +99,7 @@
 <body>
 
 <div id="toolbar">
-  <span class="title">Pin &amp; Pen</span>
+  <span class="title">📝Pin &amp; Pen</span>
   <button class="primary" id="btnCopy" title="Collect note text in layout order">Collect &amp; Copy</button>
   <button id="btnExport" title="Back up to a JSON file">Export</button>
   <button id="btnImport" title="Restore from a backup file">Import</button>
