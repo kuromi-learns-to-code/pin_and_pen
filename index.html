@@ -19,19 +19,10 @@
   #toolbar .title { font-weight:700; margin-right:8px; }
   #toolbar button { font:inherit; font-size:13px; padding:5px 10px; border:1px solid #ccc; background:#fafafa;
                     border-radius:6px; cursor:pointer; color:var(--ink); -webkit-appearance:none; appearance:none; }
-  #help { margin-left:auto; flex-shrink:1; min-width:0; font-size:12px; color:#888; overflow:hidden; text-overflow:ellipsis; }
-
-  /* 휴대폰 등 좁은 화면 */
-  @media (max-width: 700px) {
-    #toolbar { gap:4px; padding:0 8px; }
-    #toolbar .title { font-size:14px; margin-right:4px; }
-    #toolbar button { font-size:12px; padding:4px 8px; }
-    #help { display:none; }
-    .note textarea { font-size:16px; }
-  }
   #toolbar button:hover { background:#f0f0f0; }
   #toolbar button.primary { background:#2b2b2b; color:#fff; border-color:#2b2b2b; }
   #status { font-size:12px; color:#888; margin-left:6px; }
+  #help { margin-left:auto; flex-shrink:1; min-width:0; font-size:12px; color:#888; overflow:hidden; text-overflow:ellipsis; }
 
   #board { position:relative; margin-top:46px; min-width:100vw; min-height:calc(100vh - 46px);
            background-image:radial-gradient(var(--dot) 1px, transparent 1px); background-size:24px 24px; cursor:text; }
@@ -54,6 +45,12 @@
                    font:inherit; font-size:10pt; line-height:1.5; padding:6px 10px 10px; min-height:34px; color:var(--ink); }
   .note.dragging { opacity:.85; box-shadow:0 10px 24px rgba(0,0,0,.2); }
 
+  /* 다중 선택 */
+  .note.selected { box-shadow:0 0 0 2px #2f7cf6, 0 4px 14px rgba(47,124,246,.25); }
+  #marquee { position:absolute; display:none; border:1px solid #2f7cf6; background:rgba(47,124,246,.10);
+             pointer-events:none; z-index:2147483000; }
+  body.marquee-on, body.marquee-on * { user-select:none; -webkit-user-select:none; cursor:crosshair; }
+
   #palette { position:fixed; display:none; gap:6px; padding:6px 8px; background:#fff; border:1px solid #ddd;
              border-radius:8px; box-shadow:0 4px 14px rgba(0,0,0,.15); z-index:150000; }
   #palette.open { display:flex; }
@@ -72,9 +69,19 @@
   #modal .box { background:#fff; width:min(720px, 94vw); max-height:88vh; display:flex; flex-direction:column; gap:10px; padding:16px; border-radius:10px; }
   #modal .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; font-size:13px; }
   #modal select, #modal button { font:inherit; font-size:13px; padding:5px 8px; border-radius:6px; border:1px solid #ccc; background:#fafafa; cursor:pointer; }
-  #modal textarea { width:100%; height:50vh; font:inherit; font-size:10px; line-height:1.5; padding:10px; border:1px solid #ddd; border-radius:6px; resize:vertical; }
+  #modal textarea { width:100%; height:50vh; font:inherit; font-size:14px; line-height:1.5; padding:10px; border:1px solid #ddd; border-radius:6px; resize:vertical; }
   #modal .actions { display:flex; justify-content:flex-end; gap:8px; align-items:center; }
   #copyMsg { font-size:12px; color:#2a7; margin-right:auto; }
+  #scopeNote { font-size:12px; color:#2f7cf6; }
+
+  /* 휴대폰 등 좁은 화면 */
+  @media (max-width: 700px) {
+    #toolbar { gap:4px; padding:0 8px; }
+    #toolbar .title { font-size:14px; margin-right:4px; }
+    #toolbar button { font-size:12px; padding:4px 8px; }
+    #help { display:none; }
+    .note textarea { font-size:16px; }
+  }
 </style>
 </head>
 <body>
@@ -86,11 +93,11 @@
   <button id="btnImport" title="Restore from a backup file">Import</button>
   <button id="btnClear">Clear All</button>
   <span id="status"></span>
-  <span id="help">Click: new note · Drag top bar: move · Drag corner: resize · Esc: done · Ctrl+Z: undo delete</span>
+  <span id="help">Click: new note · Ctrl+click / drag area: select · Drag top bar: move · Drag corner: resize · Esc: done · Ctrl+Z: undo delete</span>
   <input type="file" id="fileInput" accept=".json,application/json" hidden>
 </div>
 
-<div id="board"></div>
+<div id="board"><div id="marquee"></div></div>
 <div id="palette"></div>
 <div id="emojiPop"></div>
 
@@ -110,6 +117,7 @@
           <option value="number">Numbered (1. )</option>
         </select>
       </label>
+      <span id="scopeNote"></span>
     </div>
     <textarea id="outText" spellcheck="false"></textarea>
     <div class="actions">
@@ -142,6 +150,18 @@
   let wasEditing = false;
   let paletteNote = null;
   let paletteJustClosed = false;
+  let suppressClick = false;
+
+  // ---------- 다중 선택 ----------
+  const selected = new Set();   // 선택된 메모 id
+  function selectedNotes() { return notes.filter(n => selected.has(n.id)); }
+  function paintSelection() {
+    board.querySelectorAll('.note').forEach(el => el.classList.toggle('selected', selected.has(el.dataset.id)));
+    statusEl.textContent = selected.size ? `${selected.size} selected · Del: delete · Esc: clear` : '';
+  }
+  function setSelection(ids) { selected.clear(); ids.forEach(id => selected.add(id)); paintSelection(); }
+  function clearSelection() { if (selected.size) { selected.clear(); paintSelection(); } }
+  function toggleSelect(n) { selected.has(n.id) ? selected.delete(n.id) : selected.add(n.id); paintSelection(); }
 
   // ---------- 색 선택 팝업 ----------
   const palette = document.getElementById('palette');
@@ -153,13 +173,12 @@
     b.addEventListener('click', () => {
       const n = paletteNote;
       if (!n) return;
-      n.color = i;
+      // 선택된 메모 중 하나에서 고르면 선택된 메모 전체에 적용
+      const group = selected.has(n.id) && selected.size > 1 ? selectedNotes() : [n];
+      group.forEach(g => { g.color = i; const ge = elOf(g); if (ge) ge.style.background = c; });
       const el = elOf(n);
       closePalette();
-      if (el) {
-        el.style.background = c;
-        el.querySelector('textarea').focus();   // 바로 이어서 입력 가능
-      }
+      if (el && group.length === 1) el.querySelector('textarea').focus();   // 바로 이어서 입력 가능
       save();
     });
     palette.appendChild(b);
@@ -276,6 +295,8 @@
 
   function renderAll() {
     board.querySelectorAll('.note').forEach(el => el.remove());
+    selected.clear();
+    statusEl.textContent = '';
     maxZ = 1;
     notes.forEach(n => { maxZ = Math.max(maxZ, n.z || 1); makeNoteEl(n); });
     fitBoard();
@@ -328,6 +349,20 @@
     // 상단 바 버튼을 눌러도 입력 커서가 빠져나가지 않도록
     bar.addEventListener('mousedown', e => e.preventDefault());
 
+    // Ctrl(⌘)+클릭: 선택 추가/해제 · 일반 클릭: 선택 해제 (단, 선택된 메모의 상단 바는 묶음 이동용)
+    el.addEventListener('pointerdown', e => {
+      if (e.target.closest('button') || e.target.closest('.grip')) return;
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (el.contains(document.activeElement) && (n.text || '').trim()) document.activeElement.blur();
+        toggleSelect(n);
+        return;
+      }
+      if (!(selected.has(n.id) && e.target.closest('.bar'))) clearSelection();
+    }, true);
+    el.addEventListener('mousedown', e => { if (e.ctrlKey || e.metaKey) e.preventDefault(); }, true);
+
     el.querySelector('.c').addEventListener('click', e => {
       if (paletteNote === n) closePalette();
       else openPalette(n, e.currentTarget);
@@ -347,20 +382,26 @@
       if (e.target.closest('button')) return;
       e.preventDefault();
       bar.setPointerCapture(e.pointerId);
+      // 선택된 메모를 끌면 선택된 메모 전체가 함께 이동
+      const group = selected.has(n.id) && selected.size > 1 ? selectedNotes() : [n];
+      const starts = group.map(g => ({ g, gel: elOf(g), ox: g.x, oy: g.y }));
+      const minX = Math.min(...starts.map(s => s.ox)), minY = Math.min(...starts.map(s => s.oy));
+      starts.forEach(s => { if (s.g !== n) bringFront(s.g); if (s.gel) s.gel.classList.add('dragging'); });
       bringFront(n);
-      el.classList.add('dragging');
-      const sx = e.clientX, sy = e.clientY, ox = n.x, oy = n.y;
+      const sx = e.clientX, sy = e.clientY;
       const move = ev => {
-        n.x = Math.max(0, Math.round(ox + ev.clientX - sx));
-        n.y = Math.max(0, Math.round(oy + ev.clientY - sy));
-        el.style.left = n.x + 'px';
-        el.style.top = n.y + 'px';
+        const dx = Math.max(-minX, ev.clientX - sx), dy = Math.max(-minY, ev.clientY - sy);
+        starts.forEach(s => {
+          s.g.x = Math.round(s.ox + dx);
+          s.g.y = Math.round(s.oy + dy);
+          if (s.gel) { s.gel.style.left = s.g.x + 'px'; s.gel.style.top = s.g.y + 'px'; }
+        });
       };
       const up = () => {
         bar.removeEventListener('pointermove', move);
         bar.removeEventListener('pointerup', up);
         bar.removeEventListener('pointercancel', up);
-        el.classList.remove('dragging');
+        starts.forEach(s => s.gel && s.gel.classList.remove('dragging'));
         save(); fitBoard();
       };
       bar.addEventListener('pointermove', move);
@@ -406,13 +447,25 @@
     const i = notes.indexOf(n);
     if (i < 0) return;
     notes.splice(i, 1);
+    selected.delete(n.id);
     const el = elOf(n);
     if (el) el.remove();
     if (remember && (n.text || '').trim()) {
-      lastDeleted = { ...n };
+      lastDeleted = [{ ...n }];
       statusEl.textContent = 'Deleted (Ctrl+Z to undo)';
     }
     save();
+  }
+
+  function deleteSelected() {
+    const list = selectedNotes();
+    if (!list.length) return;
+    if (paletteNote) closePalette();
+    if (emojiNote) closeEmoji();
+    list.forEach(n => removeNote(n, false));
+    lastDeleted = list.filter(n => (n.text || '').trim()).map(n => ({ ...n }));
+    selected.clear();
+    statusEl.textContent = `${list.length} deleted (Ctrl+Z to undo)`;
   }
 
   function addNote(x, y) {
@@ -445,9 +498,55 @@
     const a = document.activeElement;
     wasEditing = !!(a && a.tagName === 'TEXTAREA' && a.closest('.note')) || paletteJustClosed;
     paletteJustClosed = false;
+    suppressClick = false;
   });
+
+  // ---------- 빈 곳에서 드래그 → 영역 선택 (마우스 전용, 터치는 스크롤 유지) ----------
+  const marquee = document.getElementById('marquee');
+  board.addEventListener('pointerdown', e => {
+    if (e.target !== board || e.button !== 0 || e.pointerType !== 'mouse') return;
+    const r0 = board.getBoundingClientRect();
+    const sx = e.clientX - r0.left, sy = e.clientY - r0.top;
+    const base = (e.ctrlKey || e.metaKey) ? new Set(selected) : new Set();   // Ctrl+드래그: 기존 선택에 추가
+    let active = false;
+    const move = ev => {
+      const r = board.getBoundingClientRect();
+      const cx = ev.clientX - r.left, cy = ev.clientY - r.top;
+      if (!active) {
+        if (Math.abs(cx - sx) < 5 && Math.abs(cy - sy) < 5) return;   // 살짝 움직인 건 클릭으로 처리
+        active = true;
+        const a = document.activeElement;
+        if (a && a !== document.body) a.blur();
+        document.body.classList.add('marquee-on');
+        marquee.style.display = 'block';
+      }
+      const x1 = Math.min(sx, cx), y1 = Math.min(sy, cy), x2 = Math.max(sx, cx), y2 = Math.max(sy, cy);
+      Object.assign(marquee.style, { left: x1 + 'px', top: y1 + 'px', width: (x2 - x1) + 'px', height: (y2 - y1) + 'px' });
+      const hit = new Set(base);
+      notes.forEach(n => {
+        const el = elOf(n);
+        if (!el) return;
+        if (n.x < x2 && n.x + el.offsetWidth > x1 && n.y < y2 && n.y + el.offsetHeight > y1) hit.add(n.id);
+      });
+      setSelection(hit);
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      if (!active) return;
+      suppressClick = true;
+      marquee.style.display = 'none';
+      document.body.classList.remove('marquee-on');
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  });
+
   board.addEventListener('click', e => {
     if (e.target !== board) return;
+    if (suppressClick) { suppressClick = false; return; }       // 영역 선택 직후의 클릭은 무시
+    if (e.ctrlKey || e.metaKey) return;
+    if (selected.size) { clearSelection(); wasEditing = false; return; }   // 선택 중이면 첫 클릭은 선택 해제만
     if (wasEditing) { wasEditing = false; return; }   // 입력 중이었으면 첫 클릭은 입력 종료만
     const r = board.getBoundingClientRect();
     addNote(e.clientX - r.left, e.clientY - r.top);
@@ -456,13 +555,24 @@
   // ---------- 단축키 ----------
   document.addEventListener('keydown', e => {
     const inText = document.activeElement && document.activeElement.tagName === 'TEXTAREA';
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !inText && lastDeleted) {
+    const modalOpen = modal.classList.contains('open');
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !inText && lastDeleted && lastDeleted.length) {
       e.preventDefault();
-      const n = lastDeleted; lastDeleted = null;
-      n.z = ++maxZ;
-      notes.push(n); makeNoteEl(n); save(); fitBoard();
+      const list = lastDeleted; lastDeleted = null;
+      list.forEach(n => { n.z = ++maxZ; notes.push(n); makeNoteEl(n); });
+      save(); fitBoard();
       statusEl.textContent = 'Restored';
     }
+    // Ctrl+A: 전체 선택 / Delete·Backspace: 선택 삭제
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a' && !inText && !modalOpen) {
+      e.preventDefault();
+      setSelection(notes.map(n => n.id));
+    }
+    if ((e.key === 'Delete' || e.key === 'Backspace') && !inText && !modalOpen && selected.size) {
+      e.preventDefault();
+      deleteSelected();
+    }
+    if (e.key === 'Escape' && !inText && !paletteNote && !emojiNote && !modalOpen) clearSelection();
     if (e.key === 'Escape' && paletteNote) closePalette();
     if (e.key === 'Escape' && emojiNote) closeEmoji();
     if (e.key === 'Escape' && modal.classList.contains('open')) closeModal();
@@ -472,7 +582,8 @@
   // 가로 우선: 위치가 비슷한 높이(같은 줄)에 있는 메모끼리 묶고, 줄 안에서는 왼쪽→오른쪽
   // 세로 우선: 비슷한 가로 위치(같은 열)끼리 묶고, 열 안에서는 위→아래
   function readingOrder(mode) {
-    const items = notes
+    const pool = selected.size ? selectedNotes() : notes;   // 선택된 메모가 있으면 그것만 정리
+    const items = pool
       .filter(n => (n.text || '').trim())
       .map(n => {
         const el = elOf(n);
@@ -514,6 +625,7 @@
     if (document.activeElement) document.activeElement.blur();
     outText.value = buildText();
     copyMsg.textContent = '';
+    document.getElementById('scopeNote').textContent = selected.size ? `Selected notes only (${selected.size})` : '';
     modal.classList.add('open');
   }
   function closeModal() { modal.classList.remove('open'); }
