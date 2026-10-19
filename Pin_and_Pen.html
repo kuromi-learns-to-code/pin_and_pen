@@ -1,0 +1,565 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pin &amp; Pen</title>
+<style>
+  :root { --bg:#f6f4ef; --dot:#dcd7cc; --ink:#2b2b2b; --line:#ddd; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:"Malgun Gothic","맑은 고딕","Apple SD Gothic Neo",sans-serif; background:var(--bg); color:var(--ink); }
+
+  #toolbar { position:fixed; top:0; left:0; right:0; height:46px; display:flex; align-items:center; gap:6px;
+             padding:0 12px; background:#fff; border-bottom:1px solid var(--line); z-index:100000; }
+  #toolbar .title { font-weight:700; margin-right:8px; }
+  #toolbar button { font:inherit; font-size:13px; padding:5px 10px; border:1px solid #ccc; background:#fafafa; border-radius:6px; cursor:pointer; }
+  #toolbar button:hover { background:#f0f0f0; }
+  #toolbar button.primary { background:#2b2b2b; color:#fff; border-color:#2b2b2b; }
+  #status { font-size:12px; color:#888; margin-left:6px; }
+  #help { margin-left:auto; font-size:12px; color:#888; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+  #board { position:relative; margin-top:46px; min-width:100vw; min-height:calc(100vh - 46px);
+           background-image:radial-gradient(var(--dot) 1px, transparent 1px); background-size:24px 24px; cursor:text; }
+
+  .note { position:absolute; width:200px; min-width:110px; max-width:900px; border-radius:4px;
+          box-shadow:0 1px 2px rgba(0,0,0,.12), 0 3px 10px rgba(0,0,0,.08);
+          display:flex; flex-direction:column; overflow:hidden; cursor:default; }
+  .note .grip { position:absolute; right:0; bottom:0; width:14px; height:14px; cursor:nwse-resize; touch-action:none;
+                background:linear-gradient(135deg, transparent 0 52%, rgba(0,0,0,.28) 52% 59%, transparent 59% 70%,
+                                           rgba(0,0,0,.28) 70% 77%, transparent 77%); }
+  .note:focus-within { box-shadow:0 0 0 2px rgba(0,0,0,.35), 0 6px 18px rgba(0,0,0,.15); }
+  .note .bar { height:18px; flex:none; display:flex; justify-content:flex-end; align-items:center; gap:2px; padding:0 3px;
+               cursor:move; background:rgba(0,0,0,.06); touch-action:none; }
+  .note .bar button { opacity:0; border:0; background:transparent; cursor:pointer; width:20px; height:17px; padding:0;
+                      display:flex; align-items:center; justify-content:center; border-radius:3px; color:#555; }
+  .note .bar button svg { display:block; pointer-events:none; }
+  .note:hover .bar button, .note:focus-within .bar button { opacity:1; }
+  .note .bar button:hover { background:rgba(0,0,0,.1); }
+  .note textarea { border:0; background:transparent; resize:none; outline:none; overflow:hidden;
+                   font:inherit; font-size:15px; line-height:1.5; padding:6px 10px 10px; min-height:34px; color:var(--ink); }
+  .note.dragging { opacity:.85; box-shadow:0 10px 24px rgba(0,0,0,.2); }
+
+  #palette { position:fixed; display:none; gap:6px; padding:6px 8px; background:#fff; border:1px solid #ddd;
+             border-radius:8px; box-shadow:0 4px 14px rgba(0,0,0,.15); z-index:150000; }
+  #palette.open { display:flex; }
+  #palette button { width:18px; height:18px; padding:0; border-radius:50%; border:1px solid rgba(0,0,0,.18); cursor:pointer; }
+  #palette button:hover { transform:scale(1.12); }
+  #palette button.sel { outline:1.5px solid #333; outline-offset:1.5px; }
+  #emojiPop { position:fixed; display:none; grid-template-columns:repeat(8, 24px); gap:2px; padding:5px; background:#fff;
+              border:1px solid #ddd; border-radius:8px; box-shadow:0 4px 14px rgba(0,0,0,.15); z-index:150000; }
+  #emojiPop.open { display:grid; }
+  #emojiPop button { width:24px; height:24px; padding:0; border:0; background:transparent; border-radius:4px;
+                     font-size:15px; line-height:24px; cursor:pointer; }
+  #emojiPop button:hover { background:#f0f0f0; }
+
+  #modal { position:fixed; inset:0; background:rgba(0,0,0,.35); display:none; align-items:center; justify-content:center; z-index:200000; }
+  #modal.open { display:flex; }
+  #modal .box { background:#fff; width:min(720px, 94vw); max-height:88vh; display:flex; flex-direction:column; gap:10px; padding:16px; border-radius:10px; }
+  #modal .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; font-size:13px; }
+  #modal select, #modal button { font:inherit; font-size:13px; padding:5px 8px; border-radius:6px; border:1px solid #ccc; background:#fafafa; cursor:pointer; }
+  #modal textarea { width:100%; height:50vh; font:inherit; font-size:14px; line-height:1.5; padding:10px; border:1px solid #ddd; border-radius:6px; resize:vertical; }
+  #modal .actions { display:flex; justify-content:flex-end; gap:8px; align-items:center; }
+  #copyMsg { font-size:12px; color:#2a7; margin-right:auto; }
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+  <span class="title">Pin &amp; Pen</span>
+  <button class="primary" id="btnCopy" title="Collect note text in layout order">Collect &amp; Copy</button>
+  <button id="btnExport" title="Back up to a JSON file">Export</button>
+  <button id="btnImport" title="Restore from a backup file">Import</button>
+  <button id="btnClear">Clear All</button>
+  <span id="status"></span>
+  <span id="help">Click: new note · Drag top bar: move · Drag corner: resize · Esc: done · Ctrl+Z: undo delete</span>
+  <input type="file" id="fileInput" accept=".json,application/json" hidden>
+</div>
+
+<div id="board"></div>
+<div id="palette"></div>
+<div id="emojiPop"></div>
+
+<div id="modal">
+  <div class="box">
+    <div class="row">
+      <label>Order
+        <select id="optOrder">
+          <option value="row">Rows (top→bottom, left→right)</option>
+          <option value="col">Columns (left→right, top→bottom)</option>
+        </select>
+      </label>
+      <label>Format
+        <select id="optFormat">
+          <option value="blank">Blank lines</option>
+          <option value="bullet">Bullets (- )</option>
+          <option value="number">Numbered (1. )</option>
+        </select>
+      </label>
+    </div>
+    <textarea id="outText" spellcheck="false"></textarea>
+    <div class="actions">
+      <span id="copyMsg"></span>
+      <button id="btnDoCopy">Copy</button>
+      <button id="btnClose">Close</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const STORE_KEY = 'freeMemoBoard.v1';
+  // 표준 포스트잇 4색: 카나리 옐로 / 핑크 / 블루 / 그린
+  const COLORS = ['#fff59d', '#ffc1d6', '#b3e0fb', '#c5eba4'];
+  const COLOR_NAMES = ['Yellow', 'Pink', 'Blue', 'Green'];
+
+  // 상단 바 아이콘: 글꼴에 따라 크기가 달라지지 않도록 같은 크기의 SVG로 통일
+  const SVG = d => `<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">${d}</svg>`;
+  const ICON_COLOR = SVG('<circle cx="8" cy="8" r="6.25"/><path d="M8 1.75a6.25 6.25 0 0 1 0 12.5z" fill="currentColor" stroke="none"/>');
+  const ICON_EMOJI = SVG('<circle cx="8" cy="8" r="6.25"/><circle cx="5.9" cy="6.5" r=".9" fill="currentColor" stroke="none"/><circle cx="10.1" cy="6.5" r=".9" fill="currentColor" stroke="none"/><path d="M5.2 9.6a3.3 3.3 0 0 0 5.6 0"/>');
+  const ICON_DEL   = SVG('<path d="M4 4l8 8M12 4l-8 8"/>');
+  const board = document.getElementById('board');
+  const statusEl = document.getElementById('status');
+
+  let notes = [];          // {id, x, y, w, text, color, z}
+  let maxZ = 1;
+  let lastDeleted = null;
+  let saveTimer = null;
+  let wasEditing = false;
+  let paletteNote = null;
+  let paletteJustClosed = false;
+
+  // ---------- 색 선택 팝업 ----------
+  const palette = document.getElementById('palette');
+  const swatches = COLORS.map((c, i) => {
+    const b = document.createElement('button');
+    b.style.background = c;
+    b.title = COLOR_NAMES[i];
+    b.addEventListener('mousedown', e => e.preventDefault());
+    b.addEventListener('click', () => {
+      const n = paletteNote;
+      if (!n) return;
+      n.color = i;
+      const el = elOf(n);
+      closePalette();
+      if (el) {
+        el.style.background = c;
+        el.querySelector('textarea').focus();   // 바로 이어서 입력 가능
+      }
+      save();
+    });
+    palette.appendChild(b);
+    return b;
+  });
+
+  function openPalette(n, btn) {
+    if (emojiNote) closeEmoji();
+    paletteNote = n;
+    swatches.forEach((b, i) => b.classList.toggle('sel', i === (n.color || 0) % COLORS.length));
+    palette.classList.add('open');
+    placePopup(palette, btn);   // 메모 위쪽에 표시 (공간이 없으면 아래쪽)
+  }
+
+  function closePalette() {
+    const n = paletteNote;
+    palette.classList.remove('open');
+    paletteNote = null;
+    // 색만 고르다 닫은 빈 메모 정리
+    if (n && !(n.text || '').trim()) {
+      const el = elOf(n);
+      if (el && !el.contains(document.activeElement)) removeNote(n, false);
+    }
+  }
+
+  // 팝업 바깥을 누르면 닫기 (이때 빈 곳 클릭으로 새 메모가 생기지 않게)
+  document.addEventListener('pointerdown', e => {
+    if (!palette.classList.contains('open')) return;
+    if (palette.contains(e.target) || e.target.closest('.note .c')) return;
+    closePalette();
+    paletteJustClosed = true;
+  }, true);
+  document.addEventListener('pointerdown', () => { paletteJustClosed = false; });   // 보드 밖 클릭이면 플래그 해제
+  window.addEventListener('scroll', () => { if (paletteNote) closePalette(); if (emojiNote) closeEmoji(); });
+
+  // ---------- 이모지 팝업 ----------
+  const EMOJIS = ['✅','❌','⭐','💡','📌','❗','❓','⚠️',
+                  '🔥','🎯','👉','👍','🤔','😀','❤️','🚀',
+                  '📅','⏰','📝','📊','🔍','🔗','💰','✏️'];
+  const emojiPop = document.getElementById('emojiPop');
+  let emojiNote = null;
+  EMOJIS.forEach(em => {
+    const b = document.createElement('button');
+    b.textContent = em;
+    b.addEventListener('mousedown', e => e.preventDefault());
+    b.addEventListener('click', () => {
+      const n = emojiNote;
+      const el = n && elOf(n);
+      if (!el) return;
+      const ta = el.querySelector('textarea');
+      ta.focus();
+      ta.setRangeText(em, ta.selectionStart, ta.selectionEnd, 'end');   // 커서 위치에 삽입
+      ta.dispatchEvent(new Event('input'));
+      closeEmoji();
+    });
+    emojiPop.appendChild(b);
+  });
+
+  function placePopup(pop, btn) {
+    const r = btn.getBoundingClientRect();
+    const pw = pop.offsetWidth, ph = pop.offsetHeight;
+    pop.style.left = Math.max(8, Math.min(r.right - pw, window.innerWidth - pw - 8)) + 'px';
+    const above = r.top - ph - 6;
+    pop.style.top = (above >= 50 ? above : r.bottom + 6) + 'px';
+  }
+
+  function openEmoji(n, btn) {
+    if (paletteNote) closePalette();
+    emojiNote = n;
+    emojiPop.classList.add('open');
+    placePopup(emojiPop, btn);
+  }
+
+  function closeEmoji() {
+    const n = emojiNote;
+    emojiPop.classList.remove('open');
+    emojiNote = null;
+    if (n && !(n.text || '').trim()) {
+      const el = elOf(n);
+      if (el && !el.contains(document.activeElement)) removeNote(n, false);
+    }
+  }
+
+  document.addEventListener('pointerdown', e => {
+    if (!emojiPop.classList.contains('open')) return;
+    if (emojiPop.contains(e.target) || e.target.closest('.note .e')) return;
+    closeEmoji();
+    paletteJustClosed = true;
+  }, true);
+
+  // ---------- 저장 / 불러오기 ----------
+  function save() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      try {
+        localStorage.setItem(STORE_KEY, JSON.stringify({ version: 1, notes }));
+        statusEl.textContent = 'Saved ' + new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+      } catch (e) {
+        statusEl.textContent = '⚠ Auto-save failed — please Export a backup';
+      }
+    }, 300);
+  }
+
+  function load() {
+    try {
+      const raw = localStorage.getItem(STORE_KEY);
+      if (raw) {
+        const data = JSON.parse(raw);
+        if (Array.isArray(data.notes)) notes = data.notes.filter(n => (n.text || '').trim());
+      }
+    } catch (e) { notes = []; }
+    renderAll();
+  }
+
+  function renderAll() {
+    board.querySelectorAll('.note').forEach(el => el.remove());
+    maxZ = 1;
+    notes.forEach(n => { maxZ = Math.max(maxZ, n.z || 1); makeNoteEl(n); });
+    fitBoard();
+  }
+
+  // ---------- 메모 요소 ----------
+  // 글 높이에 맞춰 입력칸 높이를 잡고, 메모가 더 크면 남는 공간을 채움
+  function autosize(ta) {
+    ta.style.flex = 'none';
+    ta.style.height = 'auto';
+    ta.style.height = ta.scrollHeight + 'px';
+    ta.style.flex = '1 1 auto';
+  }
+
+  function elOf(n) { return board.querySelector(`.note[data-id="${n.id}"]`); }
+
+  function bringFront(n) {
+    if (n.z === maxZ) return;
+    n.z = ++maxZ;
+    const el = elOf(n);
+    if (el) el.style.zIndex = n.z;
+  }
+
+  function makeNoteEl(n) {
+    const el = document.createElement('div');
+    el.className = 'note';
+    el.dataset.id = n.id;
+    el.style.left = n.x + 'px';
+    el.style.top = n.y + 'px';
+    el.style.width = (n.w || 200) + 'px';
+    if (n.h) el.style.minHeight = n.h + 'px';
+    el.style.background = COLORS[(n.color || 0) % COLORS.length];
+    el.style.zIndex = n.z || 1;
+    el.innerHTML =
+      '<div class="bar"><button class="c" title="Color">' + ICON_COLOR + '</button><button class="e" title="Emoji">' + ICON_EMOJI + '</button><button class="d" title="Delete">' + ICON_DEL + '</button></div>' +
+      '<textarea rows="1" spellcheck="false"></textarea><div class="grip" title="Resize"></div>';
+
+    const bar = el.querySelector('.bar');
+    const ta = el.querySelector('textarea');
+    ta.value = n.text || '';
+
+    ta.addEventListener('input', () => { n.text = ta.value; autosize(ta); save(); fitBoard(); });
+    ta.addEventListener('focus', () => bringFront(n));
+    // 빈 메모는 포커스가 메모 밖으로 완전히 나갔을 때만 정리 (색 선택 중에는 유지)
+    ta.addEventListener('blur', () => setTimeout(() => {
+      if (!ta.value.trim() && !el.contains(document.activeElement) && paletteNote !== n && emojiNote !== n) removeNote(n, false);
+    }, 0));
+    ta.addEventListener('keydown', e => { if (e.key === 'Escape') ta.blur(); });
+
+    // 상단 바 버튼을 눌러도 입력 커서가 빠져나가지 않도록
+    bar.addEventListener('mousedown', e => e.preventDefault());
+
+    el.querySelector('.c').addEventListener('click', e => {
+      if (paletteNote === n) closePalette();
+      else openPalette(n, e.currentTarget);
+    });
+    el.querySelector('.e').addEventListener('click', e => {
+      if (emojiNote === n) closeEmoji();
+      else openEmoji(n, e.currentTarget);
+    });
+    el.querySelector('.d').addEventListener('click', () => {
+      if (paletteNote === n) closePalette();
+      if (emojiNote === n) closeEmoji();
+      removeNote(n, true);
+    });
+
+    // 드래그 이동
+    bar.addEventListener('pointerdown', e => {
+      if (e.target.closest('button')) return;
+      e.preventDefault();
+      bar.setPointerCapture(e.pointerId);
+      bringFront(n);
+      el.classList.add('dragging');
+      const sx = e.clientX, sy = e.clientY, ox = n.x, oy = n.y;
+      const move = ev => {
+        n.x = Math.max(0, Math.round(ox + ev.clientX - sx));
+        n.y = Math.max(0, Math.round(oy + ev.clientY - sy));
+        el.style.left = n.x + 'px';
+        el.style.top = n.y + 'px';
+      };
+      const up = () => {
+        bar.removeEventListener('pointermove', move);
+        bar.removeEventListener('pointerup', up);
+        bar.removeEventListener('pointercancel', up);
+        el.classList.remove('dragging');
+        save(); fitBoard();
+      };
+      bar.addEventListener('pointermove', move);
+      bar.addEventListener('pointerup', up);
+      bar.addEventListener('pointercancel', up);
+    });
+
+    // 오른쪽 아래 모서리: 대각선 크기 조절 (높이는 내용보다 작아지지 않음)
+    const grip = el.querySelector('.grip');
+    grip.addEventListener('mousedown', e => e.preventDefault());
+    grip.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      grip.setPointerCapture(e.pointerId);
+      bringFront(n);
+      const sx = e.clientX, sy = e.clientY, ow = el.offsetWidth, oh = el.offsetHeight;
+      const move = ev => {
+        n.w = Math.min(900, Math.max(110, Math.round(ow + ev.clientX - sx)));
+        n.h = Math.max(52, Math.round(oh + ev.clientY - sy));
+        el.style.width = n.w + 'px';
+        el.style.minHeight = n.h + 'px';
+        autosize(ta);
+      };
+      const up = () => {
+        grip.removeEventListener('pointermove', move);
+        grip.removeEventListener('pointerup', up);
+        grip.removeEventListener('pointercancel', up);
+        n.h = el.offsetHeight;                 // 실제 높이로 저장
+        el.style.minHeight = n.h + 'px';
+        save(); fitBoard();
+      };
+      grip.addEventListener('pointermove', move);
+      grip.addEventListener('pointerup', up);
+      grip.addEventListener('pointercancel', up);
+    });
+
+    board.appendChild(el);
+    autosize(ta);
+    return el;
+  }
+
+  function removeNote(n, remember) {
+    const i = notes.indexOf(n);
+    if (i < 0) return;
+    notes.splice(i, 1);
+    const el = elOf(n);
+    if (el) el.remove();
+    if (remember && (n.text || '').trim()) {
+      lastDeleted = { ...n };
+      statusEl.textContent = 'Deleted (Ctrl+Z to undo)';
+    }
+    save();
+  }
+
+  function addNote(x, y) {
+    const n = {
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      x: Math.max(0, Math.round(x - 12)),
+      y: Math.max(0, Math.round(y - 24)),
+      w: 200, text: '', color: 0, z: ++maxZ
+    };
+    notes.push(n);
+    const el = makeNoteEl(n);
+    el.querySelector('textarea').focus();
+    fitBoard();
+  }
+
+  // 보드 크기를 메모 범위에 맞게 넓힘 (스크롤로 계속 확장 가능)
+  function fitBoard() {
+    let mx = 0, my = 0;
+    notes.forEach(n => {
+      const el = elOf(n);
+      mx = Math.max(mx, n.x + (el ? el.offsetWidth : n.w));
+      my = Math.max(my, n.y + (el ? el.offsetHeight : 60));
+    });
+    board.style.width = Math.max(window.innerWidth, mx + 600) + 'px';
+    board.style.height = Math.max(window.innerHeight - 46, my + 500) + 'px';
+  }
+
+  // ---------- 빈 곳 클릭 → 새 메모 ----------
+  board.addEventListener('pointerdown', () => {
+    const a = document.activeElement;
+    wasEditing = !!(a && a.tagName === 'TEXTAREA' && a.closest('.note')) || paletteJustClosed;
+    paletteJustClosed = false;
+  });
+  board.addEventListener('click', e => {
+    if (e.target !== board) return;
+    if (wasEditing) { wasEditing = false; return; }   // 입력 중이었으면 첫 클릭은 입력 종료만
+    const r = board.getBoundingClientRect();
+    addNote(e.clientX - r.left, e.clientY - r.top);
+  });
+
+  // ---------- 단축키 ----------
+  document.addEventListener('keydown', e => {
+    const inText = document.activeElement && document.activeElement.tagName === 'TEXTAREA';
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !inText && lastDeleted) {
+      e.preventDefault();
+      const n = lastDeleted; lastDeleted = null;
+      n.z = ++maxZ;
+      notes.push(n); makeNoteEl(n); save(); fitBoard();
+      statusEl.textContent = 'Restored';
+    }
+    if (e.key === 'Escape' && paletteNote) closePalette();
+    if (e.key === 'Escape' && emojiNote) closeEmoji();
+    if (e.key === 'Escape' && modal.classList.contains('open')) closeModal();
+  });
+
+  // ---------- 순서대로 텍스트 정리 ----------
+  // 가로 우선: 위치가 비슷한 높이(같은 줄)에 있는 메모끼리 묶고, 줄 안에서는 왼쪽→오른쪽
+  // 세로 우선: 비슷한 가로 위치(같은 열)끼리 묶고, 열 안에서는 위→아래
+  function readingOrder(mode) {
+    const items = notes
+      .filter(n => (n.text || '').trim())
+      .map(n => {
+        const el = elOf(n);
+        const w = el ? el.offsetWidth : n.w, h = el ? el.offsetHeight : 60;
+        return mode === 'col'
+          ? { n, main: n.x, cross: n.y, size: w }
+          : { n, main: n.y, cross: n.x, size: h };
+      })
+      .sort((a, b) => a.main - b.main);
+
+    const groups = [];
+    for (const it of items) {
+      const g = groups[groups.length - 1];
+      if (g && it.main < g.start + g.size * 0.6) g.items.push(it);
+      else groups.push({ start: it.main, size: it.size, items: [it] });
+    }
+    return groups.flatMap(g => g.items.sort((a, b) => a.cross - b.cross).map(i => i.n));
+  }
+
+  function buildText() {
+    const order = readingOrder(document.getElementById('optOrder').value);
+    const fmt = document.getElementById('optFormat').value;
+    return order.map((n, i) => {
+      const lines = n.text.trim().split('\n');
+      if (fmt === 'bullet') return '- ' + lines.join('\n  ');
+      if (fmt === 'number') {
+        const p = (i + 1) + '. ';
+        return p + lines.join('\n' + ' '.repeat(p.length));
+      }
+      return lines.join('\n');
+    }).join(fmt === 'blank' ? '\n\n' : '\n');
+  }
+
+  const modal = document.getElementById('modal');
+  const outText = document.getElementById('outText');
+  const copyMsg = document.getElementById('copyMsg');
+
+  function openModal() {
+    if (document.activeElement) document.activeElement.blur();
+    outText.value = buildText();
+    copyMsg.textContent = '';
+    modal.classList.add('open');
+  }
+  function closeModal() { modal.classList.remove('open'); }
+
+  document.getElementById('btnCopy').addEventListener('click', openModal);
+  document.getElementById('btnClose').addEventListener('click', closeModal);
+  modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
+  ['optOrder', 'optFormat'].forEach(id =>
+    document.getElementById(id).addEventListener('change', () => { outText.value = buildText(); copyMsg.textContent = ''; }));
+
+  document.getElementById('btnDoCopy').addEventListener('click', async () => {
+    const text = outText.value;
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (e) {
+      outText.focus(); outText.select();
+      try { document.execCommand('copy'); } catch (_) {}
+    }
+    copyMsg.textContent = 'Copied ✓';
+  });
+
+  // ---------- 내보내기 / 불러오기 / 지우기 ----------
+  document.getElementById('btnExport').addEventListener('click', () => {
+    const d = new Date();
+    const stamp = d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0')
+                + '_' + String(d.getHours()).padStart(2, '0') + String(d.getMinutes()).padStart(2, '0');
+    const blob = new Blob([JSON.stringify({ version: 1, notes }, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `PinPen_${stamp}.json`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  });
+
+  const fileInput = document.getElementById('fileInput');
+  document.getElementById('btnImport').addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', () => {
+    const f = fileInput.files[0];
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const data = JSON.parse(reader.result);
+        if (!Array.isArray(data.notes)) throw new Error();
+        if (notes.length && !confirm('Replace the current board with this file?')) return;
+        notes = data.notes; renderAll(); save();
+      } catch (e) { alert('This is not a Pin & Pen backup file (JSON).'); }
+      fileInput.value = '';
+    };
+    reader.readAsText(f, 'utf-8');
+  });
+
+  document.getElementById('btnClear').addEventListener('click', () => {
+    if (!notes.length) return;
+    if (!confirm('Delete all notes? (Export a backup first is recommended.)')) return;
+    notes = []; lastDeleted = null; renderAll(); save();
+  });
+
+  window.addEventListener('resize', fitBoard);
+  load();
+})();
+</script>
+</body>
+</html>
