@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>📝Pin &amp; Pen</title>
+<title>📝Pinnpen</title>
 <style>
   :root { --bg:#f6f4ef; --dot:#dcd7cc; --ink:#2b2b2b; --line:#ddd; }
   * { box-sizing: border-box; }
@@ -107,7 +107,7 @@
 <body>
 
 <div id="toolbar">
-  <span class="title">📝Pin &amp; Pen</span>
+  <span class="title">📝Pinnpen</span>
   <button class="primary" id="btnCopy" title="Collect note text in layout order">Collect &amp; Copy</button>
   <button id="btnExport" title="Back up to a JSON file">Export</button>
   <button id="btnImport" title="Restore from a backup file">Import</button>
@@ -850,7 +850,7 @@
         if (!Array.isArray(data.notes)) throw new Error();
         if (notes.length && !confirm('Replace the current board with this file?')) return;
         notes = data.notes; renderAll(); save();
-      } catch (e) { alert('This is not a Pin & Pen backup file (JSON).'); }
+      } catch (e) { alert('This is not a Pinnpen backup file (JSON).'); }
       fileInput.value = '';
     };
     reader.readAsText(f, 'utf-8');
