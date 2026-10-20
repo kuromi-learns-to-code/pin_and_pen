@@ -1,2 +1,2 @@
-# pin_and_pen
+# pinnpen
 simple post-it memo board
